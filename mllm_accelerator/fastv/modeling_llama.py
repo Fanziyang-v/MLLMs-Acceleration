@@ -66,7 +66,7 @@ def llama_model_forward(
             all_hidden_states += (hidden_states,)
 
         seq_length = hidden_states.shape[1]
-        is_prefill = seq_length == 1
+        is_prefill = seq_length > 1
         if is_prefill: # FastV applies visual token pruning in the prefilling stage.
             if not hasattr(self, "fastv_info"):
                 raise ValueError("`fastv_info` is not set while FastV is activated.")
@@ -92,9 +92,10 @@ def llama_model_forward(
                 post_visual_indices = torch.arange(visual_token_end_index, seq_length, device=device, dtype=dtype)
                 keep_indices = torch.cat([pre_visual_indices, topk_indices, post_visual_indices], dim=-1)
                 hidden_states = hidden_states[:, keep_indices, :]
-                position_embeddings = position_embeddings[:, keep_indices, :]
                 position_ids = keep_indices.unsqueeze(0)
-                # TODO: handle attention_mask change.
+                position_embeddings = self.rotary_emb(hidden_states, position_ids)
+                if attention_mask is not None:
+                    attention_mask = attention_mask[:, keep_indices]
         layer_outputs = decoder_layer(
             hidden_states,
             attention_mask=causal_mask,
