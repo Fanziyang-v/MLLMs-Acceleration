@@ -76,7 +76,7 @@ def qwen2_model_forward(
                 raise ValueError("`prunevid_info` is not set while PruneVid is activated.")
             # Obtain PruneVid parameters
             selected_layer = self.prunevid_info["selected_layer"] # attention calculation is only performed on this layer
-            retention_ratio = self.prunvid_info["retention_ratio"]
+            retention_ratio = self.prunevid_info["retention_ratio"]
             visual_token_start_index = self.prunevid_info["visual_token_start_index"]
             visual_token_length = self.prunevid_info["visual_token_length"]
             visual_token_end_index = visual_token_start_index + visual_token_length
@@ -86,7 +86,7 @@ def qwen2_model_forward(
             elif layer_idx == selected_layer + 1:
                 output_attentions = _output_attentions
                 attn = layer_outputs[1]
-                attn = attn[:, :, visual_token_end_index, visual_token_start_index:visual_token_end_index]  # (bsz, n_heads, n_text_tokens, visual_token_length)
+                attn = attn[:, :, visual_token_end_index:, visual_token_start_index:visual_token_end_index]  # (bsz, n_heads, n_text_tokens, visual_token_length)
                 # Average across all attention heads
                 attn = torch.mean(attn, dim=1)  # (bsz, n_text_tokens, visual_token_length)
                 # Apply max pooling
@@ -102,8 +102,8 @@ def qwen2_model_forward(
                     attention_mask = attention_mask[:, new_seq_length]
                 # ! PruneVid: Compress KV Cache in the previous layers based on the attention scores in `selected_layer`
                 for i in range(layer_idx):
-                    past_key_values.key_cache = past_key_values.key_cache[:, :, keep_indices, :]
-                    past_key_values.value_cache = past_key_values.value_cache[:, :, keep_indices, :]
+                    past_key_values.key_cache[i] = past_key_values.key_cache[i][:, :, keep_indices, :]
+                    past_key_values.value_cache[i] = past_key_values.value_cache[i][:, :, keep_indices, :]
         else:
             attention_mask = None
         layer_outputs = decoder_layer(
