@@ -191,8 +191,11 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
     num_static_clusters, num_dynamic_clusters = int(num_static_tokens * cluster_ratio), int(num_dynamic_tokens * cluster_ratio)
     if num_static_clusters + num_dynamic_clusters < int(cluster_ratio * (num_static_tokens + num_dynamic_tokens)):
         num_static_clusters += 1
-    static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (seg_length, num_static_tokens)
-    dynamic_cluster_indices = dpc_knn(dynamic_tokens, num_clusters=num_dynamic_clusters, k=k)  # (seg_length, num_dynamic_tokens)
+    # ! NOTE: This should align with the original implementation.
+    if num_static_tokens > 2 * k:
+        static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (seg_length, num_static_tokens)
+    if num_dynamic_tokens > 2 * k:
+        dynamic_cluster_indices = dpc_knn(dynamic_tokens, num_clusters=num_dynamic_clusters, k=k)  # (seg_length, num_dynamic_tokens)
 
     # 2. Average each cluster's features in static and dynamic tokens
     assigned_static_one_hot = F.one_hot(static_cluster_indices, num_classes=num_static_clusters).to(static_tokens.dtype)  # (seg_length, num_static_tokens, num_static_clusters)
