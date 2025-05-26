@@ -76,11 +76,11 @@ def qwen2_model_forward(
                 raise ValueError("`prunevid_info` is not set while PruneVid is activated.")
             # Obtain PruneVid parameters
             pruning_layer = self.prunevid_info["pruning_layer"]
-            pruning_ratio = self.prunvid_info["pruning_ratio"]
+            retention_ratio = self.prunvid_info["retention_ratio"]
             visual_token_start_index = self.prunevid_info["visual_token_start_index"]
             visual_token_length = self.prunevid_info["visual_token_length"]
             visual_token_end_index = visual_token_start_index + visual_token_length
-            num_retained_tokens = math.ceil(pruning_ratio * visual_token_length)
+            num_retained_tokens = math.ceil(retention_ratio * visual_token_length)
             if layer_idx == pruning_layer - 1:
                 output_attentions = True
             elif layer_idx == pruning_layer:
