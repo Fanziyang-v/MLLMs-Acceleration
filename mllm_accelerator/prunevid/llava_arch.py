@@ -122,7 +122,7 @@ def prepare_inputs_labels_for_multimodal(self, input_ids, position_ids, attentio
                             raise ValueError("`prunevid_info` is not set while PruneVid is activated.")
                         # image_feature is of shape (num_frames, H * W, feat_dim)
                         num_frames, L, feat_dim = image_feature.shape
-                        H = W = math.sqrt(L)
+                        H = W = int(math.sqrt(L))
                         # Obtain PruneVid parameters
                         temporal_segment_ratio = self.prunevid_info["temporal_segment_ratio"]
                         k = self.prunevid_info["k"]
