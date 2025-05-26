@@ -3,8 +3,8 @@
 Here, I implement some recent state-of-the-art works on Multimodal Large Language Models(MLLMs) inference acceleration. The code is well-organized and readable.
 
 Todo List:
-- [] Implement more SoTA methods.
-- [] Support more MLLMs.
+- [ ] Implement more SoTA methods.
+- [ ] Support more MLLMs.
 
 
 ## Implementation
