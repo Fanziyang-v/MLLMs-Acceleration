@@ -7,6 +7,7 @@ from .modeling_qwen2 import qwen2_model_forward
 from .llava_arch import prepare_inputs_labels_for_multimodal
 from .utils import llava_qwen_generate
 
+from transformers.models.qwen2.modeling_qwen2 import Qwen2Model
 
 # TODO: implement prunevid wrapper function.
 def prunevid(model: nn.Module, temporal_segment_ratio: float = 0.25, k: int = 7, threshold: float = 0.8, cluster_ratio: float = 0.5, retention_ratio: float = 0.4, selected_layer: int = 10):
@@ -30,7 +31,7 @@ def prunevid(model: nn.Module, temporal_segment_ratio: float = 0.25, k: int = 7,
         "threshold": threshold,
         "cluster_ratio": cluster_ratio,
         "selected_layer": selected_layer,
-        "rentention_ratio": retention_ratio,
+        "retention_ratio": retention_ratio,
     }
     model.prunevid_info = prunevid_info  # Set PruneVid info in the model
     model.model.prunevid_info = prunevid_info  # Set PruneVid info in the underlying model
@@ -39,6 +40,7 @@ def prunevid(model: nn.Module, temporal_segment_ratio: float = 0.25, k: int = 7,
     if isinstance(model, LlavaQwenForCausalLM):
         LlavaQwenForCausalLM.prepare_inputs_labels_for_multimodal = prepare_inputs_labels_for_multimodal
         LlavaQwenForCausalLM.generate = llava_qwen_generate
+        Qwen2Model.forward = qwen2_model_forward
     else:
         raise NotImplementedError(f"PruneVid is not implemented for {type(model)}")
     return model
