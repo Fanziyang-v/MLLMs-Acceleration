@@ -33,7 +33,7 @@ def merge_tokens(image_features: torch.Tensor, temporal_segment_ratio: float = 0
     # Cluster frames by applying DPC-kNN clustering algorithm
     num_clusters = int(num_frames * temporal_segment_ratio)
     cluster_indices = dpc_knn(temporal_features, num_clusters=num_clusters, k=k, valid_token_mask=valid_token_mask)  # (num_frames,)
-    refined_cluster_indices = refine_clusters(cluster_indices)  # (num_frames,)
+    refined_cluster_indices = refine_clusters(cluster_indices)[0]  # (num_frames,)
 
     start_indices, end_indices, cluster_ids = extract_continuous_clusters(refined_cluster_indices)  # (num_continuous_clusters,)
     segment_image_features = [image_features[start_idx : end_idx + 1, :, :, :] for start_idx, end_idx in zip(start_indices, end_indices)]
@@ -59,15 +59,15 @@ def dpc_knn(features: torch.Tensor, num_clusters: int, k: int, valid_token_mask:
     Returns:
         torch.Tensor: Cluster indices of shape (batch_size, seq_len).
     """
-    invalid_token_mask = ~valid_token_mask
+    invalid_token_mask = ~valid_token_mask if valid_token_mask is not None else None
     bsz, seq_len, feat_dim = features.shape
 
     # Calculate euclidean distance and local density
-    dists = torch.cdist(features.float(), features.float()) / math.sqrt(feat_dim)  # (batch_size, num_frames, num_frames)
+    dists = torch.cdist(features.float(), features.float()) / math.sqrt(feat_dim)  # (batch_size, seq_len, seq_len)
     if valid_token_mask is not None:
         dists = torch.masked_fill(dists, invalid_token_mask.unsqueeze(1).expand(-1, seq_len, -1), float("+inf"))
-    nearest_dist = torch.topk(dists, k=k, dim=-1, largest=False).values  # (batch_size, num_frames, k)
-    density = torch.mean(-(nearest_dist**2), dim=-1).exp()  # (batch_size, num_frames)
+    nearest_dist = torch.topk(dists, k=k, dim=-1, largest=False).values  # (batch_size, seq_len, k)
+    density = torch.mean(-(nearest_dist**2), dim=-1).exp()  # (batch_size, seq_len)
 
     # Add little random noise to ensure no tokens have the same density.
     density = density + torch.rand_like(density, device=density.device, dtype=density.dtype) * 1e-6
@@ -78,16 +78,18 @@ def dpc_knn(features: torch.Tensor, num_clusters: int, k: int, valid_token_mask:
 
     # Obtain the minimum distance to the point with higher density.
     mask = density[:, None, :] <= density[:, :, None]
-    modified_dists = torch.masked_fill(dists, mask, float("+inf"))  # (batch_size, num_frames, num_frames)
-    dist, _ = torch.min(modified_dists, dim=-1)  # (batch_size, num_frames)
+    modified_dists = torch.masked_fill(dists, mask, float("+inf"))  # (batch_size, seq_len, seq_len)
+    dist, _ = torch.min(modified_dists, dim=-1)  # (batch_size, seq_len)
 
     # Calculate clustering score (clustering centers have the highest score)
-    score = dist * density  # (batch_size, num_frames)
+    score = dist * density  # (batch_size, seq_len)
     cluster_center_indices = torch.topk(score, k=num_clusters, dim=-1).indices  # (batch_size, num_clusters)
 
-    # Obtain the distance to cluster centers (batch_size, num_frames, num_clusters)
+    # Obtain the distance to cluster centers (batch_size, seq_len, num_clusters)
     dists = torch.gather(dists, dim=-1, index=cluster_center_indices.unsqueeze(1).expand(-1, seq_len, -1))
-    cluster_indices = torch.argmin(dists, dim=-1)  # (batch_size, num_frames)
+    cluster_indices = torch.argmin(dists, dim=-1)  # (batch_size, seq_len)
+    # Ensure each cluster center to merge with itself
+    cluster_indices.scatter_(dim=-1, index=cluster_center_indices, src=torch.arange(num_clusters, device=cluster_indices.device, dtype=cluster_indices.dtype).unsqueeze(0).expand(bsz, -1))
     return cluster_indices
 
 
@@ -116,19 +118,19 @@ def refine_clusters(cluster_indices: torch.Tensor) -> torch.Tensor:
                 left_cluster_id = cluster_ids[idx - 1] if idx > 0 else None
                 right_cluster_id = cluster_ids[idx + 1] if idx < len(lengths) - 1 else None
                 # Reassign the cluster ID.
-                new_cluster_id = cluster_id
-                if left_length > right_length:
+                new_cluster_id = 0
+                # ! TODO: FIX ME (This is not aligned with the original implementation.)
+                if left_length == 0 and right_length == 0:
+                    # If both left and right segments are empty, assign cluster ID to 0.
+                    cluster_ids[idx] = new_cluster_id = 0
+                elif left_length >= right_length:
                     # If the left segment is longer, merge with the left segment
-                    new_cluster_id = left_cluster_id
+                    cluster_ids[idx] = new_cluster_id = left_cluster_id
+                    lengths[idx] = left_length + 1
                 elif right_length > left_length:
                     # If the right segment is longer, merge with the right segment
-                    new_cluster_id = right_cluster_id
-                else:
-                    # If both segments are of the same length, merge with the left segment
-                    new_cluster_id = left_cluster_id if left_cluster_id is not None else right_cluster_id
-                if new_cluster_id is None:
-                    # If both left and right segments are None, assign cluster ID to 0.
-                    new_cluster_id = 0
+                    cluster_ids[idx] = new_cluster_id = right_cluster_id
+                    lengths[idx] = right_length + 1
                 refined_cluster_indices[i, start_idx : end_idx + 1] = new_cluster_id
     return refined_cluster_indices
 
@@ -187,6 +189,8 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
 
     # 1. Apply DPC-kNN clustering to the static and dynamic tokens respectively
     num_static_clusters, num_dynamic_clusters = int(num_static_tokens * cluster_ratio), int(num_dynamic_tokens * cluster_ratio)
+    if num_static_clusters + num_dynamic_clusters < int(cluster_ratio * (num_static_tokens + num_dynamic_tokens)):
+        num_static_clusters += 1
     static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (seg_length, num_static_tokens)
     dynamic_cluster_indices = dpc_knn(dynamic_tokens, num_clusters=num_dynamic_clusters, k=k)  # (seg_length, num_dynamic_tokens)
 
@@ -224,7 +228,7 @@ def extract_continuous_clusters(cluster_indices: torch.Tensor) -> Tuple[torch.Te
     diff_mask = cluster_indices[1:] != cluster_indices[:-1]  # (num_frames - 1,)
     diff_indices = torch.where(diff_mask)[0] + 1  # Get the indices where the cluster changes
     start_indices = torch.cat([torch.tensor([0], device=device, dtype=torch.long), diff_indices])  # Start of each continuous cluster
-    end_indices = torch.cat([diff_indices, torch.tensor([num_frames - 1], device=device, dtype=torch.long)])  # End of each continuous cluster
+    end_indices = torch.cat([diff_indices - 1, torch.tensor([num_frames - 1], device=device, dtype=torch.long)])  # End of each continuous cluster
     cluster_ids = cluster_indices[start_indices]  # Get the cluster indices for each continuous segment
     return start_indices, end_indices, cluster_ids
 
@@ -249,7 +253,8 @@ def get_indices_to_be_refined(start_indices: torch.Tensor, end_indices: torch.Te
         cluster_lengths = lengths[indices]
         max_length = cluster_lengths.max()
         # Mark indices that are not the longest segment or are single frame segments
-        mask[indices[cluster_lengths < max_length or cluster_lengths == 1]] = True
+        mask[indices[cluster_lengths < max_length]] = True
+        mask[indices[cluster_lengths == 1]] = True
     return torch.where(mask)[0]  # Return the indices to be refined
 
 
