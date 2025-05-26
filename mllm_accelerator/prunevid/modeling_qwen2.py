@@ -75,15 +75,15 @@ def qwen2_model_forward(
             if not hasattr(self, "prunevid_info"):
                 raise ValueError("`prunevid_info` is not set while PruneVid is activated.")
             # Obtain PruneVid parameters
-            pruning_layer = self.prunevid_info["pruning_layer"]
+            selected_layer = self.prunevid_info["selected_layer"] # attention calculation is only performed on this layer
             retention_ratio = self.prunvid_info["retention_ratio"]
             visual_token_start_index = self.prunevid_info["visual_token_start_index"]
             visual_token_length = self.prunevid_info["visual_token_length"]
             visual_token_end_index = visual_token_start_index + visual_token_length
             num_retained_tokens = math.ceil(retention_ratio * visual_token_length)
-            if layer_idx == pruning_layer - 1:
+            if layer_idx == selected_layer:
                 output_attentions = True
-            elif layer_idx == pruning_layer:
+            elif layer_idx == selected_layer + 1:
                 output_attentions = _output_attentions
                 attn = layer_outputs[1]
                 attn = attn[:, :, visual_token_end_index, visual_token_start_index:visual_token_end_index]  # (bsz, n_heads, n_text_tokens, visual_token_length)
@@ -100,6 +100,12 @@ def qwen2_model_forward(
                 position_embeddings = self.rotary_emb(hidden_states, position_ids)
                 if attention_mask is not None:
                     attention_mask = attention_mask[:, new_seq_length]
+                # ! PruneVid: Compress KV Cache in the previous layers based on the attention scores in `selected_layer`
+                for i in range(layer_idx):
+                    past_key_values.key_cache = past_key_values.key_cache[:, :, keep_indices, :]
+                    past_key_values.value_cache = past_key_values.value_cache[:, :, keep_indices, :]
+        else:
+            attention_mask = None
         layer_outputs = decoder_layer(
             hidden_states,
             attention_mask=causal_mask,
