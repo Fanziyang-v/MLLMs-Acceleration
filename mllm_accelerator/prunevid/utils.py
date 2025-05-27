@@ -69,7 +69,7 @@ def dpc_knn(features: torch.Tensor, num_clusters: int, k: int, valid_token_mask:
     # Calculate euclidean distance and local density
     dists = torch.cdist(features.float(), features.float()) / math.sqrt(feat_dim)  # (batch_size, seq_len, seq_len)
     if valid_token_mask is not None:
-        dists = torch.masked_fill(dists, invalid_token_mask.unsqueeze(1).expand(-1, seq_len, -1), float("+inf"))
+        dists = torch.masked_fill(dists, invalid_token_mask.unsqueeze(1).expand(-1, seq_len, -1), dists.max() + 1)  # Mask out invalid tokens
     nearest_dist = torch.topk(dists, k=k, dim=-1, largest=False).values  # (batch_size, seq_len, k)
     density = torch.mean(-(nearest_dist**2), dim=-1).exp()  # (batch_size, seq_len)
 
@@ -81,8 +81,9 @@ def dpc_knn(features: torch.Tensor, num_clusters: int, k: int, valid_token_mask:
         density = torch.masked_fill(density, invalid_token_mask, 0.0)
 
     # Obtain the minimum distance to the point with higher density.
-    mask = density[:, None, :] <= density[:, :, None]
-    modified_dists = torch.masked_fill(dists, mask, float("+inf"))  # (batch_size, seq_len, seq_len)
+    mask = density[:, None, :] > density[:, :, None]
+    max_dist = dists.reshape(bsz, -1).max(dim=-1)[0].view(-1, 1, 1) # (batch_size, 1, 1)
+    modified_dists = torch.where(mask, dists, max_dist)  # (batch_size, seq_len, seq_len)
     dist, _ = torch.min(modified_dists, dim=-1)  # (batch_size, seq_len)
 
     # Calculate clustering score (clustering centers have the highest score)
