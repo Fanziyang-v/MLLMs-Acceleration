@@ -173,6 +173,11 @@ def partition(segment_similarities: torch.Tensor, threshold: float) -> Tuple[tor
 def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask: torch.Tensor, cluster_ratio: float, k: int) -> torch.Tensor:
     """Merge static and dynamic tokens in the image feature.
 
+    0. Obtain static and dynamic tokens
+    1. Apply DPC-kNN clustering to the static and dynamic tokens respectively
+    2. Average each cluster's features in static and dynamic tokens
+    3. Concatenate static and dynamic features
+
     Args:
         segment (torch.Tensor): The image feature, of shape (seg_length, H, W, feat_dim).
         static_mask (torch.Tensor): Boolean mask indicating static tokens, of shape (H, W).
@@ -181,36 +186,36 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
     Returns:
         torch.Tensor: Merged image feature, of shape (seg_length, num_static_clusters + num_dynamic_clusters, feat_dim).
     """
-    # 0. Obtain static and dynamic tokens
+    # Obtain static and dynamic tokens
     static_tokens = segment[:, static_mask, :]  # (seg_length, num_static_tokens, feat_dim)
     dynamic_tokens = segment[:, dynamic_mask, :]  # (seg_length, num_dynamic_tokens, feat_dim)
 
     num_static_tokens, num_dynamic_tokens = static_tokens.shape[1], dynamic_tokens.shape[1]
 
-    # 1. Apply DPC-kNN clustering to the static and dynamic tokens respectively
     num_static_clusters, num_dynamic_clusters = int(num_static_tokens * cluster_ratio), int(num_dynamic_tokens * cluster_ratio)
     if num_static_clusters + num_dynamic_clusters < int(cluster_ratio * (num_static_tokens + num_dynamic_tokens)):
         num_static_clusters += 1
-    # ! NOTE: This should align with the original implementation.
+    # NOTE: This should align with the original implementation.
+    static_features, dynamic_features = static_tokens, dynamic_tokens  # Initialize features
     if num_static_tokens > 2 * k:
+        # Apply DPC-kNN clustering to the static tokens
         static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (seg_length, num_static_tokens)
+        # Average each cluster's features in static and dynamic tokens
+        assigned_static_one_hot = F.one_hot(static_cluster_indices, num_classes=num_static_clusters).to(static_tokens.dtype)  # (seg_length, num_static_tokens, num_static_clusters)
+        static_features = torch.einsum("s n c, s n f -> s c f", assigned_static_one_hot, static_tokens)  # (seg_length, num_clusters, feat_dim)
+        # ! ATTENTION: Ensure that each cluster has at least one token.
+        static_cluster_counts = assigned_static_one_hot.sum(dim=1).unsqueeze(-1)  # (seg_length, num_static_clusters, 1)
+        static_features = static_features / static_cluster_counts  # (seg_length, num_static_clusters, feat_dim)
     if num_dynamic_tokens > 2 * k:
+        # Apply DPC-kNN clustering to the dynamic tokens
         dynamic_cluster_indices = dpc_knn(dynamic_tokens, num_clusters=num_dynamic_clusters, k=k)  # (seg_length, num_dynamic_tokens)
+        assigned_dynamic_one_hot = F.one_hot(dynamic_cluster_indices, num_classes=num_dynamic_clusters).to(dynamic_tokens.dtype)  # (seg_length, num_dynamic_tokens, num_dynamic_clusters)
+        dynamic_features = torch.einsum("s n c, s n f -> s c f", assigned_dynamic_one_hot, dynamic_tokens)  # (seg_length, num_clusters, feat_dim)
+        # ! ATTENTION: Ensure that each cluster has at least one token.
+        dynamic_cluster_counts = assigned_dynamic_one_hot.sum(dim=1).unsqueeze(-1)  # (seg_length, num_dynamic_clusters, 1)
+        dynamic_features = dynamic_features / dynamic_cluster_counts  # (seg_length, num_dynamic_clusters, feat_dim)
 
-    # 2. Average each cluster's features in static and dynamic tokens
-    assigned_static_one_hot = F.one_hot(static_cluster_indices, num_classes=num_static_clusters).to(static_tokens.dtype)  # (seg_length, num_static_tokens, num_static_clusters)
-    static_features = torch.einsum("s n c, s n f -> s c f", assigned_static_one_hot, static_tokens)  # (seg_length, num_clusters, feat_dim)
-    assigned_dynamic_one_hot = F.one_hot(dynamic_cluster_indices, num_classes=num_dynamic_clusters).to(dynamic_tokens.dtype)  # (seg_length, num_dynamic_tokens, num_dynamic_clusters)
-    dynamic_features = torch.einsum("s n c, s n f -> s c f", assigned_dynamic_one_hot, dynamic_tokens)  # (seg_length, num_clusters, feat_dim)
-
-    # ! ATTENTION: Ensure that each cluster has at least one token.
-    static_cluster_counts = assigned_static_one_hot.sum(dim=1).unsqueeze(-1)  # (seg_length, num_static_clusters, 1)
-    dynamic_cluster_counts = assigned_dynamic_one_hot.sum(dim=1).unsqueeze(-1)  # (seg_length, num_dynamic_clusters, 1)
-
-    static_features = static_features / static_cluster_counts  # (seg_length, num_static_clusters, feat_dim)
-    dynamic_features = dynamic_features / dynamic_cluster_counts  # (seg_length, num_dynamic_clusters, feat_dim)
-
-    # 3. Concatenate static and dynamic features
+    # Concatenate static and dynamic features
     return torch.cat([static_features, dynamic_features], dim=1)
 
 
