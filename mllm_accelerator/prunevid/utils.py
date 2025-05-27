@@ -46,8 +46,8 @@ def merge_tokens(image_features: torch.Tensor, temporal_segment_ratio: float = 0
     merged_segments = [spatial_merge(segment, static_mask, dynamic_mask, cluster_ratio, k) for segment, static_mask, dynamic_mask in zip(segment_image_features, static_masks, dynamic_masks)]
 
     # Flatten the segments and concatenate them
-    merged_segments = [segment.view(-1, feat_dim) for segment in merged_segments]
-    return torch.cat(merged_segments, dim=0)  # (num_frames * (num_static_clusters + num_dynamic_clusters), feat_dim)
+    merged_segments = [torch.cat([static_features.flatten(0, 1), dynamic_features.flatten(0, 1)]) for static_features, dynamic_features in merged_segments]
+    return torch.cat(merged_segments, dim=0)  # (num_segments * num_static_clusters + num_frames * num_dynamic_clusters, feat_dim)
 
 
 @torch.no_grad()
@@ -174,7 +174,7 @@ def partition(segment_similarities: torch.Tensor, threshold: float) -> Tuple[tor
     return static_mask, dynamic_mask
 
 
-def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask: torch.Tensor, cluster_ratio: float, k: int) -> torch.Tensor:
+def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask: torch.Tensor, cluster_ratio: float, k: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """Merge static and dynamic tokens in the image feature.
 
     0. Obtain static and dynamic tokens
@@ -188,7 +188,9 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
         dynamic_mask (torch.Tensor): Boolean mask indicating dynamic tokens, of shape (H, W).
 
     Returns:
-        torch.Tensor: Merged image feature, of shape (seg_length, num_static_clusters + num_dynamic_clusters, feat_dim).
+        Tuple: A tuple containing:
+            - static_features (torch.Tensor): Merged static image feature, of shape (1, num_static_clusters, feat_dim).
+            - dynamic_features (torch.Tensor): Merged dynamic image feature, of shape (seg_length, num_dynamic_clusters, feat_dim).
     """
     # Obtain static and dynamic tokens
     static_tokens = segment[:, static_mask, :]  # (seg_length, num_static_tokens, feat_dim)
@@ -199,16 +201,18 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
     if num_static_clusters + num_dynamic_clusters < int(cluster_ratio * (num_static_tokens + num_dynamic_tokens)):
         num_static_clusters += 1
     # NOTE: This should align with the original implementation.
-    static_features, dynamic_features = static_tokens, dynamic_tokens  # Initialize features
+    # Apply Temporal Averaging Pooling operation in static tokens.
+    static_features = static_tokens.mean(dim=0, keepdim=True)  # (1, num_static_tokens, feat_dim)
+    dynamic_features = dynamic_tokens # (seg_length, num_dynamic_tokens, feat_dim)
     if num_static_tokens > 2 * k:
         # Apply DPC-kNN clustering to the static tokens
-        static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (seg_length, num_static_tokens)
+        static_cluster_indices = dpc_knn(static_tokens, num_clusters=num_static_clusters, k=k)  # (1, num_static_tokens)
         # Average each cluster's features in static and dynamic tokens
-        assigned_static_one_hot = F.one_hot(static_cluster_indices, num_classes=num_static_clusters).to(static_tokens.dtype)  # (seg_length, num_static_tokens, num_static_clusters)
-        static_features = torch.einsum("s n c, s n f -> s c f", assigned_static_one_hot, static_tokens)  # (seg_length, num_clusters, feat_dim)
+        assigned_static_one_hot = F.one_hot(static_cluster_indices, num_classes=num_static_clusters).to(static_tokens.dtype)  # (1, num_static_tokens, num_static_clusters)
+        static_features = torch.einsum("s n c, s n f -> s c f", assigned_static_one_hot, static_tokens)  # (1, num_clusters, feat_dim)
         # ! ATTENTION: Ensure that each cluster has at least one token.
-        static_cluster_counts = assigned_static_one_hot.sum(dim=1).unsqueeze(-1)  # (seg_length, num_static_clusters, 1)
-        static_features = static_features / static_cluster_counts  # (seg_length, num_static_clusters, feat_dim)
+        static_cluster_counts = assigned_static_one_hot.sum(dim=1).unsqueeze(-1)  # (1, num_static_clusters, 1)
+        static_features = static_features / static_cluster_counts  # (1, num_static_clusters, feat_dim)
     if num_dynamic_tokens > 2 * k:
         # Apply DPC-kNN clustering to the dynamic tokens
         dynamic_cluster_indices = dpc_knn(dynamic_tokens, num_clusters=num_dynamic_clusters, k=k)  # (seg_length, num_dynamic_tokens)
@@ -219,7 +223,7 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
         dynamic_features = dynamic_features / dynamic_cluster_counts  # (seg_length, num_dynamic_clusters, feat_dim)
 
     # Concatenate static and dynamic features
-    return torch.cat([static_features, dynamic_features], dim=1)
+    return static_features, dynamic_features
 
 
 def extract_continuous_clusters(cluster_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
