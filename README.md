@@ -3,6 +3,7 @@
 Here, I implement some recent state-of-the-art works on Multimodal Large Language Models(MLLMs) inference acceleration. The code is well-organized and readable.
 
 Todo List:
+- [ ] Implement [FastVID](https://github.com/LunarShen/FastVID).
 - [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
@@ -49,3 +50,13 @@ Todo List:
 **Abstract**: In this paper, we introduce PruneVid, a visual token pruning method designed to enhance the efficiency of multi-modal video understanding. Large Language Models (LLMs) have shown promising performance in video tasks due to their extended capabilities in comprehending visual modalities. However, the substantial redundancy in video data presents significant computational challenges for LLMs. To address this issue, we introduce a training-free method that 1) minimizes video redundancy by merging spatial-temporal tokens, and 2) leverages LLMs' reasoning capabilities to selectively prune visual features relevant to question tokens, enhancing model efficiency. We validate our method across multiple video benchmarks, which demonstrate that PruneVid can prune over 80% of tokens while maintaining competitive performance combined with different model networks. This highlights its superior effectiveness and efficiency compared to existing pruning methods. Code: [https://github.com/Visual-AI/PruneVid](https://github.com/Visual-AI/PruneVid).
 
 ![PruneVid](./assets/prunevid.png)
+
+
+### FastVID
+
+**Authors**: *Leqi Shen, Guoqiang Gong, Tao He, Yifeng Zhang, Pengzhang Liu, Sicheng Zhao, Guiguang Ding*
+
+**Abstract**: Video Large Language Models have demonstrated strong video understanding capabilities, yet their practical deployment is hindered by substantial inference costs caused by redundant video tokens. Existing pruning techniques fail to fully exploit the spatiotemporal redundancy inherent in video data. To bridge this gap, we perform a systematic analysis of video redundancy from two perspectives: temporal context and visual context. Leveraging these insights, we propose Dynamic Density Pruning for Fast Video LLMs termed FastVID. Specifically, FastVID dynamically partitions videos into temporally ordered segments to preserve temporal structure and applies a density-based token pruning strategy to maintain essential visual information. Our method significantly reduces computational overhead while maintaining temporal and visual integrity. Extensive evaluations show that FastVID achieves state-of-the-art performance across various short- and long-video benchmarks on leading Video LLMs, including LLaVA-OneVision and LLaVAVideo. Notably, on LLaVA-OneVision-7B, FastVID effectively prunes 90.3% of video tokens, reduces FLOPs to 8.3%, and accelerates the prefilling stage by 7.1×, while maintaining 98.0% of the original accuracy. The code is available at [https://github.com/LunarShen/FastVID](https://github.com/LunarShen/FastVID).
+
+
+![FastVID](./assets/fastvid.png)
