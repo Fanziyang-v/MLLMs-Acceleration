@@ -73,6 +73,8 @@ AVAILABLE_MODELS = {
     "whisper": "Whisper",
     "whisper_vllm": "WhisperVllm",
     "vora": "VoRA",
+    # ! Custom Models.
+    "llava_onevision_prunevid": "Llava_OneVision_PruneVid",
 }
 
 
