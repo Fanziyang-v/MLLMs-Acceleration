@@ -130,7 +130,7 @@ def prepare_inputs_labels_for_multimodal(self, input_ids, position_ids, attentio
                         threshold = self.prunevid_info["threshold"]
                         # NOT pass valid_token_mask yet.
                         image_feature = merge_tokens(image_feature.view(num_frames, H, W, feat_dim), temporal_segment_ratio, k, threshold, cluster_ratio)
-                        image_feature = image_feature.view(-1, feat_dim)
+                        # image_feature = image_feature.view(-1, feat_dim)
                         # image_feature = image_feature.flatten(0, 1)
                         if 'unpad' in mm_patch_merge_type:
                             image_feature = torch.cat((

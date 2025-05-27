@@ -42,8 +42,12 @@ def merge_tokens(image_features: torch.Tensor, temporal_segment_ratio: float = 0
     static_masks = [mask[0] for mask in masks]  # (H, W)
     dynamic_masks = [mask[1] for mask in masks]  # (H, W)
 
+    # ! ATTENTION: each frame may have different number of tokens after spatial merging.
     merged_segments = [spatial_merge(segment, static_mask, dynamic_mask, cluster_ratio, k) for segment, static_mask, dynamic_mask in zip(segment_image_features, static_masks, dynamic_masks)]
-    return torch.cat(merged_segments, dim=0)  # (num_frames, num_static_clusters + num_dynamic_clusters, feat_dim)
+
+    # Flatten the segments and concatenate them
+    merged_segments = [segment.view(-1, feat_dim) for segment in merged_segments]
+    return torch.cat(merged_segments, dim=0)  # (num_frames * (num_static_clusters + num_dynamic_clusters), feat_dim)
 
 
 @torch.no_grad()
@@ -191,7 +195,6 @@ def spatial_merge(segment: torch.Tensor, static_mask: torch.Tensor, dynamic_mask
     dynamic_tokens = segment[:, dynamic_mask, :]  # (seg_length, num_dynamic_tokens, feat_dim)
 
     num_static_tokens, num_dynamic_tokens = static_tokens.shape[1], dynamic_tokens.shape[1]
-
     num_static_clusters, num_dynamic_clusters = int(num_static_tokens * cluster_ratio), int(num_dynamic_tokens * cluster_ratio)
     if num_static_clusters + num_dynamic_clusters < int(cluster_ratio * (num_static_tokens + num_dynamic_tokens)):
         num_static_clusters += 1
