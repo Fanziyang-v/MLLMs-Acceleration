@@ -83,10 +83,10 @@ def clip_vision_tower_feature_select(self, image_forward_outs):
     # (4) Obtain assigned matrix
     assigned_one_hot = torch.zeros((bsz, num_other_tokens, num_target_tokens), dtype=image_features.dtype, device=device)
     assigned_one_hot.scatter_(dim=-1, index=similarities.argmax(dim=-1).unsqueeze(-1), src=1) # [bsz, num_other_tokens, num_target_tokens]
-    counts = 1 + torch.sum(assigned_one_hot, dim=1).unsqueeze(-1) # [bsz, num_target_tokens, 1]
+    counts = torch.sum(assigned_one_hot, dim=1).clamp(min=1).unsqueeze(-1) # [bsz, num_target_tokens, 1]
 
     # (5) Aggregate tokens by averaging each group's features.
-    aggregated_tokens = (torch.bmm(assigned_one_hot.transpose(1, 2), tokens_to_merge) + target_tokens) / counts 
+    aggregated_tokens = torch.bmm(assigned_one_hot.transpose(1, 2), tokens_to_merge) / counts + target_tokens
     contextual_tokens = aggregated_tokens # [bsz, num_contextual_tokens, hidden_size]
 
 
