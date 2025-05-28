@@ -76,6 +76,7 @@ AVAILABLE_MODELS = {
     # ! Custom Models.
     "llava_onevision_prunevid": "Llava_OneVision_PruneVid",
     "llava_visionzip": "Llava_VisionZip",
+    "llava_onevision_fastvid": "Llava_OneVision_FastVID",
 }
 
 
