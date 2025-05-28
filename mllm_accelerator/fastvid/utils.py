@@ -154,21 +154,21 @@ def dtm(
         # (4). Merge features between anchor tokens and to-be-merged tokens.
         anchor_frame_features = segment_features[anchor_frame_indices]  # (num_anchor_frames, seq_len, feat_dim)
         to_be_merged_tokens = segment_features.view(-1, feat_dim)  # (segment_length * seq_len, feat_dim)
-        anchor_tokens = anchor_frame_features[anchor_token_indices].view(-1, feat_dim)  # (num_anchor_frames * new_num_contextual_tokens, feat_dim)
+        anchor_tokens = torch.gather(anchor_frame_features, dim=1, index=anchor_token_indices.unsqueeze(-1).expand(-1, -1, feat_dim)).view(-1, feat_dim)  # (num_anchor_frames * new_num_contextual_tokens, feat_dim)
         # Normalize features
         to_be_merged_tokens = to_be_merged_tokens / to_be_merged_tokens.norm(p=2, dim=-1, keepdim=True)
         anchor_tokens = anchor_tokens / anchor_tokens.norm(p=2, dim=-1, keepdim=True)
         # Calculate cosine similarities between anchor tokens and to-be-merged tokens.
-        similarities = torch.bmm(to_be_merged_tokens, anchor_tokens.transpose(1, 2))  # (num_to_be_merged_tokens, num_anchor_tokens)
+        similarities = torch.matmul(to_be_merged_tokens, anchor_tokens.transpose(0, 1))  # (num_to_be_merged_tokens, num_anchor_tokens)
 
         cluster_indices = similarities.argmax(dim=-1)  # (num_to_be_merged_tokens,)
         assigned_one_hot = F.one_hot(cluster_indices, num_classes=anchor_tokens.shape[0]).to(features.dtype)  # (num_to_be_merged_tokens, num_anchor_tokens)
 
-        counts = assigned_one_hot.sum(dim=0).clamp(min=1).unsqueeze(-1)  # (num_anchor_tokens,)
+        counts = assigned_one_hot.sum(dim=0).clamp(min=1).unsqueeze(-1)  # (num_anchor_tokens, 1)
         aggregated_tokens = torch.matmul(assigned_one_hot.transpose(0, 1), to_be_merged_tokens) / counts  # (num_anchor_tokens, feat_dim)
 
         # (5). Calculate contextual tokens by merging anchor tokens and aggregated tokens.
-        alpha = (1 / (counts + 1)).clamp(min=dtm_alpha).unsqueeze(-1)  # (num_anchor_tokens,)
+        alpha = (1 / (counts + 1)).clamp(min=dtm_alpha)  # (num_anchor_tokens, 1)
         contextual_tokens = alpha * anchor_tokens + (1 - alpha) * aggregated_tokens  # (num_anchor_tokens, feat_dim)
 
         all_tokens += (contextual_tokens,)
