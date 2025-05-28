@@ -38,10 +38,28 @@ def dyseg(global_features: torch.Tensor, dyseg_c: int, dyseg_tau: float) -> torc
     return segment_lengths
 
 
-# TODO: Implement STPrune (Spatial-Temporal Pruning)
-def stprune(features: torch.Tensor, global_features: torch.Tensor, frame_attn_weights: torch.Tensor, segment_lengths: torch.Tensor, global_indices: torch.Tensor, dyseg_c: int, dyseg_tau: float, dtm_alpha: int, dtm_p: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    pass
+def stprune(
+    features: torch.Tensor, frame_attn_weights: torch.Tensor, segment_lengths: torch.Tensor, global_indices: torch.Tensor, retention_ratio: float, stprune_d: float, dtm_alpha: int, dtm_p: int, k: int = 4
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    num_frames, num_tokens, feat_dim = features.shape
+    num_retained_tokens = int(num_tokens * retention_ratio)  # the number of tokens to retain for each frame.
+    num_salient_tokens = int(stprune_d * num_retained_tokens)  # the number of salient tokens for each frame to select based on attention weights.
+    num_contextual_tokens = num_retained_tokens - num_salient_tokens  # the number of contextual tokens for each frame to select based on DTM.
 
+    # 1. Apply Attention Token Selection (ATS) to select salient tokens based on attention weights.
+    salient_features, salient_global_indices = select_tokens_by_attn(features, frame_attn_weights, num_salient_tokens, global_indices)
+
+    # Create a mask to prevent the same token selection with ATS.
+    mask = torch.ones((num_frames, num_tokens), dtype=torch.bool, device=features.device)
+    mask.scatter_(1, salient_global_indices.view(num_frames, -1), False)
+
+    # 2. Apply Density-based Token Merging (DTM) to select contextual tokens based on density scores.
+    contextual_features, contextual_global_indices = dtm(features, segment_lengths, num_contextual_tokens, global_indices, dtm_alpha, k=k, step=dtm_p, mask=mask)
+
+    concat_features = torch.cat([salient_features, contextual_features], dim=0)  # (num_frames * num_retained_tokens, feat_dim)
+    concat_global_indices = torch.cat([salient_global_indices, contextual_global_indices], dim=0)  # (num_frames * num_retained_tokens,)
+
+    return concat_features, concat_global_indices
 
 
 def select_tokens_by_attn(image_features: torch.Tensor, frame_attn_weights: torch.Tensor, num_salient_tokens: int, global_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -82,8 +100,8 @@ def dtm(
 
     Returns:
         Tuple: A tuple containing:
-            - all_tokens (Tuple[torch.Tensor]): Contextual tokens for each segment of shape (num_segments, num_contextual_tokens, feat_dim).
-            - all_keep_indices (Tuple[torch.Tensor]): Indices of the selected contextual tokens of shape (num_segments, num_contextual_tokens).
+            - all_tokens (torch.Tensor): Contextual tokens of shape (num_contextual_tokens * num_segments, feat_dim).
+            - all_keep_indices (torch.Tensor): Global indices of the contextual tokens of shape (num_contextual_tokens * num_segments,).
     """
     bsz, _, feat_dim = features.shape
     device = features.device
@@ -150,6 +168,8 @@ def dtm(
         all_keep_indices += (keep_indices.view(-1),)
         offset += segment_length
 
+    all_tokens = torch.cat(all_tokens, dim=0)
+    all_keep_indices = torch.cat(all_keep_indices, dim=0)
     return all_tokens, all_keep_indices
 
 
