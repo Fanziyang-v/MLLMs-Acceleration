@@ -1,10 +1,14 @@
-from typing import Tuple, Optional
+from typing import Optional, List, Tuple, Union
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 import math
+
+
+from llava.constants import IMAGE_TOKEN_INDEX
+from transformers.generation.utils import GenerateOutput
 
 
 def dyseg(global_features: torch.Tensor, dyseg_c: int, dyseg_tau: float) -> torch.Tensor:
@@ -39,7 +43,7 @@ def dyseg(global_features: torch.Tensor, dyseg_c: int, dyseg_tau: float) -> torc
 
 
 def stprune(
-    features: torch.Tensor, frame_attn_weights: torch.Tensor, segment_lengths: torch.Tensor, global_indices: torch.Tensor, retention_ratio: float, stprune_d: float, dtm_alpha: int, dtm_p: int, k: int = 4
+    features: torch.Tensor, frame_attn_weights: torch.Tensor, segment_lengths: torch.Tensor, global_indices: torch.Tensor, retention_ratio: float, stprune_d: float, dtm_alpha: float, dtm_p: int, k: int = 4
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     num_frames, num_tokens, feat_dim = features.shape
     num_retained_tokens = int(num_tokens * retention_ratio)  # the number of tokens to retain for each frame.
@@ -47,11 +51,11 @@ def stprune(
     num_contextual_tokens = num_retained_tokens - num_salient_tokens  # the number of contextual tokens for each frame to select based on DTM.
 
     # 1. Apply Attention Token Selection (ATS) to select salient tokens based on attention weights.
-    salient_features, salient_global_indices = select_tokens_by_attn(features, frame_attn_weights, num_salient_tokens, global_indices)
+    salient_features, salient_global_indices, keep_indices = select_tokens_by_attn(features, frame_attn_weights, num_salient_tokens, global_indices)
 
     # Create a mask to prevent the same token selection with ATS.
     mask = torch.ones((num_frames, num_tokens), dtype=torch.bool, device=features.device)
-    mask.scatter_(1, salient_global_indices.view(num_frames, -1), False)
+    mask.scatter_(1, keep_indices, False)
 
     # 2. Apply Density-based Token Merging (DTM) to select contextual tokens based on density scores.
     contextual_features, contextual_global_indices = dtm(features, segment_lengths, num_contextual_tokens, global_indices, dtm_alpha, k=k, step=dtm_p, mask=mask)
@@ -74,13 +78,14 @@ def select_tokens_by_attn(image_features: torch.Tensor, frame_attn_weights: torc
     Returns:
         Tuple: A tuple containing:
             - salient_features (torch.Tensor): Selected tokens of shape (num_frames * num_salient_tokens, feat_dim).
-            - keep_indices (torch.Tensor): Global indices of the selected tokens of shape (num_frames * num_salient_tokens,).
+            - salient_global_indices (torch.Tensor): Global indices of the selected tokens of shape (num_frames * num_salient_tokens,).
+            - keep_indices (torch.Tensor): Indices of the selected tokens in the original image features of shape (num_frames, num_salient_tokens).
     """
     num_frames, num_tokens, feat_dim = image_features.shape
     keep_indices = torch.topk(frame_attn_weights, k=num_salient_tokens, dim=-1).indices  # (num_frames, num_salient_tokens)
     salient_features = torch.gather(image_features, dim=1, index=keep_indices.unsqueeze(-1).expand(-1, -1, feat_dim))
     salient_global_indices = torch.gather(global_indices, dim=1, index=keep_indices)  # (num_frames, num_salient_tokens)
-    return salient_features.view(-1, feat_dim), salient_global_indices.view(-1)
+    return salient_features.view(-1, feat_dim), salient_global_indices.view(-1), keep_indices
 
 
 @torch.no_grad()
@@ -128,12 +133,12 @@ def dtm(
     offset = 0
     for segment_length in segment_lengths:
         segment_start_index, segment_end_index = offset, offset + segment_length
-        anchor_frame_indices = torch.arange(segment_length, step=step, device=device, dtype=torch.int64)
+        anchor_frame_indices = torch.arange(0, segment_length, step=step, device=device, dtype=torch.int64)
 
         # (1). Slice segment features, density scores, and global indices.
-        segment_features = features[segment_start_index:segment_end_index, :, :]
-        segment_density_scores = density_scores[segment_start_index:segment_end_index, :]
-        segment_global_indices = global_indices[segment_start_index:segment_end_index, :]
+        segment_features = features[segment_start_index:segment_end_index, :, :].contiguous()
+        segment_density_scores = density_scores[segment_start_index:segment_end_index, :].contiguous()
+        segment_global_indices = global_indices[segment_start_index:segment_end_index, :].contiguous()
 
         # (2). Allocate contextual tokens for anchor frames.
         num_segment_contextual_tokens = segment_length * num_contextual_tokens
@@ -142,7 +147,9 @@ def dtm(
 
         # (3). Select anchor frames and their contextual tokens based on density scores.
         anchor_token_indices = torch.topk(segment_density_scores[anchor_frame_indices], k=new_num_contextual_tokens, dim=-1).indices  # (num_anchor_frames, new_num_contextual_tokens)
-        keep_indices = segment_global_indices[anchor_frame_indices][anchor_token_indices]  # (num_anchor_frames, new_num_contextual_tokens)
+        # Use torch.gather to avoid CUDA advanced indexing issues
+        selected_global_indices = segment_global_indices[anchor_frame_indices]  # (num_anchor_frames, seq_len)
+        keep_indices = torch.gather(selected_global_indices, dim=1, index=anchor_token_indices)  # (num_anchor_frames, new_num_contextual_tokens)
 
         # (4). Merge features between anchor tokens and to-be-merged tokens.
         anchor_frame_features = segment_features[anchor_frame_indices]  # (num_anchor_frames, seq_len, feat_dim)
@@ -189,7 +196,7 @@ def calc_density_score(features: torch.Tensor, k: int = 4) -> torch.Tensor:
     # Calculate pairwise distances between features
     dists = torch.cdist(features.float(), features.float()) / math.sqrt(feat_dim)  # (bsz, seq_len, seq_len)
     nearest_dist = torch.topk(dists, k=k, dim=-1).values  # (bsz, seq_len, k)
-    density = torch.mean(-(nearest_dist**2), dim=-1)  # (bsz, seq_len)
+    density = torch.mean(-(nearest_dist**2), dim=-1).exp()  # (bsz, seq_len)
 
     # Add little noise to ensure no tokens have the same density.
     density = density + torch.rand_like(density) * 1e-6
@@ -201,3 +208,30 @@ def calc_density_score(features: torch.Tensor, k: int = 4) -> torch.Tensor:
 
     density_scores = dist * density  # (bsz, seq_len)
     return density_scores
+
+
+@torch.no_grad()
+def llava_qwen_generate(
+    self,
+    inputs: Optional[torch.Tensor] = None,
+    images: Optional[torch.Tensor] = None,
+    image_sizes: Optional[torch.Tensor] = None,
+    modalities: Optional[List[str]] = ["image"],
+    **kwargs,
+) -> Union[GenerateOutput, torch.LongTensor]:
+    position_ids = kwargs.pop("position_ids", None)
+    attention_mask = kwargs.pop("attention_mask", None)
+    if "inputs_embeds" in kwargs:
+        raise NotImplementedError("`inputs_embeds` is not supported")
+
+    if images is not None:
+        visual_token_start_index = torch.where(inputs[0] == IMAGE_TOKEN_INDEX)[0].item()
+        visual_token_end_index = -(inputs.shape[1] - visual_token_start_index)
+        (inputs, position_ids, attention_mask, _, inputs_embeds, _) = self.prepare_inputs_labels_for_multimodal(inputs, position_ids, attention_mask, None, None, images, modalities, image_sizes=image_sizes)
+        visual_token_length = (inputs_embeds.shape[1] + visual_token_end_index) - visual_token_start_index
+        # update fastvid_info
+        self.fastvid_info.update({"visual_token_start_index": visual_token_start_index, "visual_token_length": visual_token_length})
+    else:
+        inputs_embeds = self.get_model().embed_tokens(inputs)
+
+    return super(type(self), self).generate(position_ids=position_ids, attention_mask=attention_mask, inputs_embeds=inputs_embeds, **kwargs)
