@@ -75,6 +75,7 @@ AVAILABLE_MODELS = {
     "vora": "VoRA",
     # ! Custom Models.
     "llava_onevision_prunevid": "Llava_OneVision_PruneVid",
+    "llava_visionzip": "Llava_VisionZip",
 }
 
 
