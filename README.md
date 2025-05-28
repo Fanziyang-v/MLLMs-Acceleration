@@ -5,7 +5,7 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 **Note**: All the implementation are based on the official implementation.
 
 Todo List:
-- [ ] Debug [FastVID](https://github.com/LunarShen/FastVID) Implementation.
+- [x] Debug [FastVID](https://github.com/LunarShen/FastVID) Implementation.
 - [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
