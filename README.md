@@ -5,15 +5,40 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 **Note**: All the implementation are based on the official implementation.
 
 Todo List:
-- [x] Debug [FastVID](https://github.com/LunarShen/FastVID) Implementation.
+- [x] Debug FastVID Implementation.
 - [x] Debug VisionZip implementation.
 - [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
 
-## Implementation
+## 🔨Installation
 
-### FastV
+First, clone this repository.
+
+```
+git clone https://github.com/Fanziyang-v/MLLMs-Accelerator.git
+cd MLLMs-Accelerator
+```
+
+Second, create a virtual environment by conda.
+
+```
+conda create -n mllm_accelerator python=3.10 -y
+conda activate mllm_accelerator
+```
+
+Third, install the dependencies.
+
+```
+pip install -e .
+pip install -e lmms-eval
+pip install transformers==4.51.3
+```
+
+
+## 🧰Implementation
+
+### FastV (ECCV 2024 Oral)
 
 **Authors**: *Liang Chen, Haozhe Zhao, Tianyu Liu, Shuai Bai, Junyang Lin, Chang Zhou, Baobao Chang*
 
@@ -30,7 +55,7 @@ Todo List:
 
 ![FasterVLM](./assets/fastervlm.png)
 
-### VisionZip
+### VisionZip (CVPR 2025)
 
 **Authors**: *Senqiao Yang, Yukang Chen, Zhuotao Tian, Chengyao Wang, Jingyao Li, Bei Yu, Jiaya Jia*
 
@@ -38,7 +63,7 @@ Todo List:
 
 ![VisionZip](./assets/visionzip.png)
 
-### DyCoke
+### DyCoke (CVPR 2025)
 
 **Authors**: *Keda Tao, Can Qin, Haoxuan You, Yang Sui, Huan Wang*
 
@@ -46,7 +71,7 @@ Todo List:
 
 ![DyCoke](./assets/dycoke.png)
 
-### PruneVid
+### PruneVid (ACL 2025)
 
 **Authors**: *Xiaohu Huang, Hao Zhou, Kai Han*
 
