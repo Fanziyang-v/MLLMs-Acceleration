@@ -14,7 +14,7 @@ from llava.model.language_model.llava_qwen import LlavaQwenForCausalLM
 
 from .utils import llava_qwen_generate
 
-def fastvid(model: nn.Module, dyseg_c: int = 4, dyseg_tau: float = 0.9, retention_ratio: float = 0.1, stprune_d: float = 0.4, dtm_alpha: float = 0.4, dtm_p: int = 4, k: int = 4):
+def fastvid(model: nn.Module, dyseg_c: int = 8, dyseg_tau: float = 0.9, retention_ratio: float = 0.1, stprune_d: float = 0.4, dtm_alpha: float = 0.6, dtm_p: int = 4, k: int = 4):
     # Set FastVID parameters in the model
     fastvid_info = {
         "dyseg_c": dyseg_c,
@@ -25,6 +25,7 @@ def fastvid(model: nn.Module, dyseg_c: int = 4, dyseg_tau: float = 0.9, retentio
         "dtm_p": dtm_p,
         "k": k,
     }
+    print(f"FastVID parameters: {fastvid_info}")
     model.fastvid_info = fastvid_info
     model.model.fastvid_info = fastvid_info
     # TODO: Support more MLLMs.

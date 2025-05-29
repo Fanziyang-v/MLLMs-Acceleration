@@ -47,8 +47,8 @@ def stprune(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     num_frames, num_tokens, feat_dim = features.shape
     num_retained_tokens = int(num_tokens * retention_ratio)  # the number of tokens to retain for each frame.
-    num_salient_tokens = int(stprune_d * num_retained_tokens)  # the number of salient tokens for each frame to select based on attention weights.
-    num_contextual_tokens = num_retained_tokens - num_salient_tokens  # the number of contextual tokens for each frame to select based on DTM.
+    num_contextual_tokens = int(stprune_d * num_retained_tokens)  # the number of salient tokens for each frame to select based on attention weights.
+    num_salient_tokens = num_retained_tokens - num_contextual_tokens  # the number of contextual tokens for each frame to select based on DTM.
 
     # 1. Apply Attention Token Selection (ATS) to select salient tokens based on attention weights.
     salient_features, salient_global_indices, keep_indices = select_tokens_by_attn(features, frame_attn_weights, num_salient_tokens, global_indices)
@@ -133,7 +133,7 @@ def dtm(
     offset = 0
     for segment_length in segment_lengths:
         segment_start_index, segment_end_index = offset, offset + segment_length
-        anchor_frame_indices = torch.arange(0, segment_length, step=step, device=device, dtype=torch.int64)
+        anchor_frame_indices = torch.arange(segment_length - 1, -1, step=-step, device=device, dtype=torch.int64)
 
         # (1). Slice segment features, density scores, and global indices.
         segment_features = features[segment_start_index:segment_end_index, :, :].contiguous()
@@ -153,13 +153,14 @@ def dtm(
 
         # (4). Merge features between anchor tokens and to-be-merged tokens.
         anchor_frame_features = segment_features[anchor_frame_indices]  # (num_anchor_frames, seq_len, feat_dim)
-        to_be_merged_tokens = segment_features.view(-1, feat_dim)  # (segment_length * seq_len, feat_dim)
+        # to_be_merged_tokens = segment_features.view(-1, feat_dim)  # (segment_length * seq_len, feat_dim)
+        to_be_merged_tokens = segment_features.view(1, -1, feat_dim).expand(num_anchor_frames, -1, -1).reshape(-1, feat_dim)  # (num_anchor_frames * segment_length * seq_len, feat_dim)
         anchor_tokens = torch.gather(anchor_frame_features, dim=1, index=anchor_token_indices.unsqueeze(-1).expand(-1, -1, feat_dim)).view(-1, feat_dim)  # (num_anchor_frames * new_num_contextual_tokens, feat_dim)
         # Normalize features
-        to_be_merged_tokens = to_be_merged_tokens / to_be_merged_tokens.norm(p=2, dim=-1, keepdim=True)
-        anchor_tokens = anchor_tokens / anchor_tokens.norm(p=2, dim=-1, keepdim=True)
+        normed_to_be_merged_tokens = to_be_merged_tokens / to_be_merged_tokens.norm(p=2, dim=-1, keepdim=True)
+        normed_anchor_tokens = anchor_tokens / anchor_tokens.norm(p=2, dim=-1, keepdim=True)
         # Calculate cosine similarities between anchor tokens and to-be-merged tokens.
-        similarities = torch.matmul(to_be_merged_tokens, anchor_tokens.transpose(0, 1))  # (num_to_be_merged_tokens, num_anchor_tokens)
+        similarities = torch.matmul(normed_to_be_merged_tokens, normed_anchor_tokens.transpose(0, 1))  # (num_to_be_merged_tokens, num_anchor_tokens)
 
         cluster_indices = similarities.argmax(dim=-1)  # (num_to_be_merged_tokens,)
         assigned_one_hot = F.one_hot(cluster_indices, num_classes=anchor_tokens.shape[0]).to(features.dtype)  # (num_to_be_merged_tokens, num_anchor_tokens)
@@ -195,7 +196,7 @@ def calc_density_score(features: torch.Tensor, k: int = 4) -> torch.Tensor:
     bsz, seq_len, feat_dim = features.shape
     # Calculate pairwise distances between features
     dists = torch.cdist(features.float(), features.float()) / math.sqrt(feat_dim)  # (bsz, seq_len, seq_len)
-    nearest_dist = torch.topk(dists, k=k, dim=-1).values  # (bsz, seq_len, k)
+    nearest_dist = torch.topk(dists, k=k, dim=-1, largest=False).values  # (bsz, seq_len, k)
     density = torch.mean(-(nearest_dist**2), dim=-1).exp()  # (bsz, seq_len)
 
     # Add little noise to ensure no tokens have the same density.
