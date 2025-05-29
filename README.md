@@ -6,6 +6,7 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 
 Todo List:
 - [x] Debug [FastVID](https://github.com/LunarShen/FastVID) Implementation.
+- [ ] Debug VisionZip implementation.
 - [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
@@ -62,3 +63,7 @@ Todo List:
 
 
 ![FastVID](./assets/fastvid.png)
+
+## ⭐Acknowledgement
+
+The codes are built upon the [LLaVA-NEXT](https://github.com/LLaVA-VL/LLaVA-NeXT) and [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) codebase. Besides, all the MLLMs acceleration methods are implemented based on the official implementations of [VisionZip](https://github.com/dvlab-research/VisionZip), [FastV](https://github.com/pkunlp-icler/FastV), [FasterVLM](https://github.com/Theia-4869/FasterVLM), [FastVID](https://github.com/LunarShen/FastVID), [PruneVID](https://github.com/Visual-AI/PruneVid) and [DyCoke](https://github.com/KD-TAO/DyCoke). Thanks for their excellent works!
