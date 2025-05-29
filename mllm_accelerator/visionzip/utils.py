@@ -5,12 +5,16 @@ Modified by Fanziyang-v
 
 1. Remove unnecessary code.
 2. Add key comments.
+3. Optimize the code:
+    - Only store the attentions in the specific layer
+    - Only calculate the metric in the specific layer
 """
 
 import torch
 import torch.nn as nn
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
+
 
 def clip_attn_forward(
     self,
@@ -18,7 +22,7 @@ def clip_attn_forward(
     attention_mask: Optional[torch.Tensor] = None,
     causal_attention_mask: Optional[torch.Tensor] = None,
     output_attentions: Optional[bool] = False,
-) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
     """Input shape: Batch x Time x Channel"""
 
     bsz, tgt_len, embed_dim = hidden_states.size()
@@ -26,6 +30,7 @@ def clip_attn_forward(
     # get query proj
     query_states = self.q_proj(hidden_states) * self.scale
     key_states = self._shape(self.k_proj(hidden_states), -1, bsz)
+    metric = key_states.clone()
     value_states = self._shape(self.v_proj(hidden_states), -1, bsz)
 
     proj_shape = (bsz * self.num_heads, -1, self.head_dim)
@@ -37,33 +42,25 @@ def clip_attn_forward(
     attn_weights = torch.bmm(query_states, key_states.transpose(1, 2))
 
     if attn_weights.size() != (bsz * self.num_heads, tgt_len, src_len):
-        raise ValueError(
-            f"Attention weights should be of size {(bsz * self.num_heads, tgt_len, src_len)}, but is"
-            f" {attn_weights.size()}"
-        )
+        raise ValueError(f"Attention weights should be of size {(bsz * self.num_heads, tgt_len, src_len)}, but is" f" {attn_weights.size()}")
 
     # apply the causal_attention_mask first
     if causal_attention_mask is not None:
         if causal_attention_mask.size() != (bsz, 1, tgt_len, src_len):
-            raise ValueError(
-                f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is"
-                f" {causal_attention_mask.size()}"
-            )
+            raise ValueError(f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is" f" {causal_attention_mask.size()}")
         attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + causal_attention_mask
         attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
     if attention_mask is not None:
         if attention_mask.size() != (bsz, 1, tgt_len, src_len):
-            raise ValueError(
-                f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is {attention_mask.size()}"
-            )
+            raise ValueError(f"Attention mask should be of size {(bsz, 1, tgt_len, src_len)}, but is {attention_mask.size()}")
         attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len) + attention_mask
         attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
     attn_weights = nn.functional.softmax(attn_weights, dim=-1)
 
     if output_attentions:
-        # this operation is a bit akward, but it's required to
+        # this operation is a bit awkward, but it's required to
         # make sure that attn_weights keeps its gradient.
         # In order to do so, attn_weights have to reshaped
         # twice and have to be reused in the following
@@ -77,19 +74,16 @@ def clip_attn_forward(
     attn_output = torch.bmm(attn_probs, value_states)
 
     if attn_output.size() != (bsz * self.num_heads, tgt_len, self.head_dim):
-        raise ValueError(
-            f"`attn_output` should be of size {(bsz, self.num_heads, tgt_len, self.head_dim)}, but is"
-            f" {attn_output.size()}"
-        )
+        raise ValueError(f"`attn_output` should be of size {(bsz, self.num_heads, tgt_len, self.head_dim)}, but is" f" {attn_output.size()}")
 
     attn_output = attn_output.view(bsz, self.num_heads, tgt_len, self.head_dim)
     attn_output = attn_output.transpose(1, 2)
     attn_output = attn_output.reshape(bsz, tgt_len, embed_dim)
 
     attn_output = self.out_proj(attn_output)
-
     # ! VisionZip: output key states for similarity-based token merging in VisionZip
-    return attn_output, attn_weights_reshaped, key_states.mean(dim=1)
+    return attn_output, attn_weights_reshaped, metric.mean(dim=1)
+
 
 def clip_encoder_layer_forward(
     self,
@@ -111,17 +105,26 @@ def clip_encoder_layer_forward(
     residual = hidden_states
 
     hidden_states = self.layer_norm1(hidden_states)
-    hidden_states, attn_weights, metric = self.self_attn(
-        hidden_states=hidden_states,
-        attention_mask=attention_mask,
-        causal_attention_mask=causal_attention_mask,
-        output_attentions=output_attentions,
-    )
+
+    if self.output_metric:
+        hidden_states, attn_weights, metric = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            causal_attention_mask=causal_attention_mask,
+            output_attentions=True,
+        )
+        # ! VisionZip: Store key states and attention weights for token merging
+        self.metric = metric
+        self.attentions = attn_weights
+    else:
+        hidden_states, attn_weights = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            causal_attention_mask=causal_attention_mask,
+            output_attentions=output_attentions,
+        )
     hidden_states = residual + hidden_states
 
-    # ! VisionZip: Store key states for token merging
-    if self.output_metric:
-        self.metric = metric
     residual = hidden_states
     hidden_states = self.layer_norm2(hidden_states)
     hidden_states = self.mlp(hidden_states)
@@ -134,22 +137,23 @@ def clip_encoder_layer_forward(
 
     return outputs
 
+
 def apply_info(vision_model, dominant_num: int, contextual_num: int, layer_idx: int = -2):
     """Store info.
 
     Args:
-        vision_tower (CLIPVisionModel): CLIP Visual Encoder
+        vision_tower (CLIPVisionModel): CLIP Vision Model
         dominant_num (int): number of dominant tokens
         contextual_num (int): number of contextual tokens
         layer_idx (int): encoder layer index to output key states metric for token merging
     """
     vision_model._info = {
-        "dominant":dominant_num,
-        "contextual":contextual_num,
+        "dominant": dominant_num,
+        "contextual": contextual_num,
     }
-    layers = vision_model.encoder.layers
+    layers = vision_model.vision_model.encoder.layers
     num_layers = len(layers)
-    if layer_idx >= 0 and layer_idx < num_layers or layer_idx < 0 and abs(layer_idx) <= num_layers:
+    if layer_idx >= 0 and layer_idx < num_layers or layer_idx < 0 and abs(layer_idx) > num_layers:
         raise ValueError(f"Layer index: {layer_idx} is out of bound.")
     for encoder_layer in layers:
         encoder_layer.output_metric = False
