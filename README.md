@@ -6,7 +6,7 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 
 Todo List:
 - [x] Debug [FastVID](https://github.com/LunarShen/FastVID) Implementation.
-- [ ] Debug VisionZip implementation.
+- [x] Debug VisionZip implementation.
 - [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
