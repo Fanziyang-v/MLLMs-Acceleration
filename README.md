@@ -5,11 +5,8 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 **Note**: All the implementation are based on the official implementation.
 
 Todo List:
-- [x] Debug FastVID Implementation.
-- [x] Debug VisionZip implementation.
-- [x] Implement DivPrune.
+- [ ] Implement PyramidDrop.
 - [ ] Align PruneVid with official implementation.
-- [ ] Implement more SoTA methods.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
 
@@ -131,6 +128,14 @@ accelerate launch \
 
 ![DivPrune](./assets/divprune.png)
 
+### PyramidDrop
+
+**Authors**: *Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, Dahua Lin*
+
+**Abstract**: In large vision-language models (LVLMs), images serve as inputs that carry a wealth of information. As the idiom “A picture is worth a thousand words” implies, representing a single image in current LVLMs can require hundreds or even thousands of tokens. This results in significant computational costs, which grow quadratically as input image resolution increases, thereby severely impacting the efficiency. Previous approaches have attempted to reduce the number of image tokens either before or within the early layers of LVLMs. However, these strategies inevitably result in the loss of crucial image information. To address this challenge, we conduct an empirical study revealing that all visual tokens are necessary for LVLMs in the shallow layers, and token redundancy progressively increases in the deeper layers. To this end, we propose PyramidDrop, a visual redundancy reduction strategy for LVLMs to boost their efficiency in both inference and training with neglectable performance loss. Specifically, we partition the LVLM into several stages and drop part of the image tokens at the end of each stage with a pre-defined ratio. The dropping is based on a lightweight similarity calculation with a negligible time overhead. Extensive experiments demonstrate that PyramidDrop can achieve over 40% training time reduction and 55% inference FLOPs acceleration on leading LVLMs like LLaVA-NeXT, maintaining comparable multimodal performance. Besides, PyramidDrop can also serve as a plug-and-play strategy to accelerate inference in a free way, with better performance and lower inference cost than counterparts. This project is available at [https://github.com/Cooperx521/PyramidDrop](https://github.com/Cooperx521/PyramidDrop) to serve as a pivotal resource for advancing the community.
+
+![PyramidDrop](./assets/pdrop.png)
+
 ## ⭐Acknowledgement
 
-The codes are built upon the [LLaVA-NEXT](https://github.com/LLaVA-VL/LLaVA-NeXT) and [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) codebase. Besides, all the MLLMs acceleration methods are implemented based on the official implementations of [VisionZip](https://github.com/dvlab-research/VisionZip), [FastV](https://github.com/pkunlp-icler/FastV), [FasterVLM](https://github.com/Theia-4869/FasterVLM), [FastVID](https://github.com/LunarShen/FastVID), [PruneVID](https://github.com/Visual-AI/PruneVid) and [DyCoke](https://github.com/KD-TAO/DyCoke). Thanks for their excellent works!
+The codes are built upon the [LLaVA-NEXT](https://github.com/LLaVA-VL/LLaVA-NeXT) and [lmms-eval](https://github.com/EvolvingLMMs-Lab/lmms-eval) codebase. Besides, all the MLLMs acceleration methods are implemented based on the official implementations of [VisionZip](https://github.com/dvlab-research/VisionZip), [FastV](https://github.com/pkunlp-icler/FastV), [FasterVLM](https://github.com/Theia-4869/FasterVLM), [FastVID](https://github.com/LunarShen/FastVID), [PruneVID](https://github.com/Visual-AI/PruneVid), [DyCoke](https://github.com/KD-TAO/DyCoke), [DivPrune](https://github.com/vbdi/divprune) and [PyramidDrop](https://github.com/Cooperx521/PyramidDrop). Thanks for their excellent works!
