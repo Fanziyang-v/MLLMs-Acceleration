@@ -5,7 +5,7 @@ Here, I implement some recent state-of-the-art works on Multimodal Large Languag
 **Note**: All the implementation are based on the official implementation.
 
 Todo List:
-- [ ] Implement PyramidDrop.
+- [x] Implement PyramidDrop.
 - [ ] Align PruneVid with official implementation.
 - [ ] Support more MLLMs.
 - [ ] Support more methods' evaluation using lmms-eval.
@@ -128,7 +128,7 @@ accelerate launch \
 
 ![DivPrune](./assets/divprune.png)
 
-### PyramidDrop
+### PyramidDrop (CVPR 2025)
 
 **Authors**: *Long Xing, Qidong Huang, Xiaoyi Dong, Jiajie Lu, Pan Zhang, Yuhang Zang, Yuhang Cao, Conghui He, Jiaqi Wang, Feng Wu, Dahua Lin*
 
