@@ -5,3 +5,4 @@ from .dycoke import dycoke
 from .prunevid import prunevid
 from .fastvid import fastvid
 from .divprune import divprune
+from .pdrop import pdrop
