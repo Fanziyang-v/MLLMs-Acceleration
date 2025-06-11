@@ -77,6 +77,7 @@ AVAILABLE_MODELS = {
     "llava_onevision_prunevid": "Llava_OneVision_PruneVid",
     "llava_visionzip": "Llava_VisionZip",
     "llava_onevision_fastvid": "Llava_OneVision_FastVID",
+    "llava_pdrop": "Llava_PDrop",
 }
 
 
